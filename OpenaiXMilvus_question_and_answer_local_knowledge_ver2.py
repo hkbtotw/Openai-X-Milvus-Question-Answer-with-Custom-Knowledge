@@ -28,8 +28,13 @@ from langchain.llms import LlamaCpp
 import tiktoken
 import  numpy as np
 
+### read PDF
+from langchain.document_loaders import UnstructuredPDFLoader
+from langchain.document_loaders import PyPDFLoader # for loading the pdf
+
 ## environment
 import os
+import time
 
 def vector_similarity(x, y):
     """
@@ -57,8 +62,24 @@ def compute_doc_embeddings(df, model):
         idx: get_embedding(r.content, model) for idx, r in df.iterrows()
     }
 
+def compute_doc_embeddings_delay(df, model):
+    """
+    Create an embedding for each row in the dataframe using the OpenAI Embeddings API.
+    
+    Return a dictionary that maps between each embedding vector and the index of the row that it corresponds to.
+    """
+    output={}
+    count=0
+    for idx, r in df.iterrows():
+        count=count+1
+        print(' embedding : ',count,' from ',len(df))
+        output.update({idx: get_embedding(r.content, model) })
+        time.sleep(2)
+    return output
+
 def Construct_Context(dfData,MAX_SECTION_LEN):
 
+    dfData.dropna(subset=['content'],inplace=True)
     most_relevant_document_sections = list(dfData['order'])
 
     chosen_sections = []
@@ -136,9 +157,12 @@ def create_milvus_collection(collection_name, dim):
     return collection
 
 ## rearrange data to vector format
-def Vectorize_DataFrame(dfIn, columnList):
+def Vectorize_DataFrame(dfIn, columnList, start_id):
     dfIn=dfIn[columnList].copy()
     outputList=[]
+    dfIn['id']=dfIn['id'].astype(int)
+    dfIn['id']=dfIn['id']+start_id
+    dfIn['id']=dfIn['id'].astype(str)
     for column in columnList:
         # print(dfIn[column].values,' ------ ',type(dfIn[column].values)) 
         outputList.append(dfIn[column].values.tolist())
@@ -149,10 +173,10 @@ def Vectorize_DataFrame(dfIn, columnList):
 ### connect to pymilvus
 #### set up Milvus according to the documentation on its website , standalone : https://milvus.io/docs/install_standalone-operator.md
 #### input host ip , ip of machine with Milvus installed
-connections.connect("default", host="xx.x.xxx.xxx", port="19530")   
+connections.connect("default", host="10.8.222.129", port="19530")   
 
 ## openai
-openai.api_key='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'    #### input your oopenai API key here
+openai.api_key='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'    #### input your oopenai API key here
 
 EMBEDDING_MODEL = "text-embedding-ada-002"
 COMPLETIONS_MODEL = "gpt-3.5-turbo"
@@ -177,27 +201,70 @@ base_path='D:\\DataWarehouse\\GPT\\Milvus\\'
 ###### Local Knowledge to be embedded
 # data_file_name='test1.txt'
 data_file_name='test1_th.txt'
+pdf_name = "Full-เอกสารประกอบการสอน-วิชาการเมืองการปกคร.pdf"
+
+### reference table
+reference_table_file='reference_file.parquet'
 
 ### Specify query
 # query = "Who is the current prime minister of Thailand? and What does Prayut relate with this person"
 # query = "ใครคือนายกรัฐมนตรีของประเทศไทย ในปัจจุบัน?"   ### answer in thai is ok now, need to make sure the local knowledge is readable in utf-8
 # query = "รัฐประหารในไทยเกิดเมื่อไรบ้างและเป็นอย่างไร"
-query = "รัฐประหารในไทยเกิดเมื่อไรบ้างและ ควรทำอย่างไรเพื่อให้ไม่เกิดขึ้นอีก"
+# query = "รัฐประหารในไทยเกิดเมื่อไรบ้างและ ควรทำอย่างไรเพื่อให้ไม่เกิดขึ้นอีก"
+query = "อธิบายบทบาทของนายกรัฐมนตรี กับ การเมืองการปกครองของไทย"
 #####################################################
 ### Parameters 
 ### Set parameters to operate the code
-if_new_data=0    ## 1 : Read data from file and save to parquet and processing / 0 : Read saved parquet file for further processing
-if_insert=0      ## 1 : Insert new data to Milvus / 0 : Not insert any data 
-if_query=1       ## 1 : Search for content in local data most similar to the query string and submit it as context with query to openai / 0 : not doing anything
-######################################################
 
+if_new_data=0    ## 1 : Read data from file and save to parquet and processing / 0 : Read saved parquet file for further processing
+## select new_data in txt or pdf format
+if_pdf=1
+if_text=0
+
+if_insert_newdata=0               ## 1 : Insert new data to new Milvus table / 0 : Not insert any data 
+if_insert_to_existingTable=0      ## 1 : Insert new data to existing Milvus table / 0 : Not insert any data 
+
+if_query=1                        ## 1 : Search for content in local data most similar to the query string and submit it as context with query to openai / 0 : not doing anything
+
+### Beware ? This is deleting the table
+if_delete_collection=0
+######################################################
+if(if_delete_collection==1):
+    print(' ---- Drop collection ----')
+    utility.drop_collection('question_answer')
+    print(' **** Dropping Done ****')
+    exit()
 
 if(if_new_data==1):
-    ## read datafile and prepare for processing
-    with open(base_path+'\\data\\'+data_file_name, encoding="utf8", errors='ignore') as f:
-        state_of_the_union = f.read()
-    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-    texts = text_splitter.split_text(state_of_the_union)
+    text_data=''
+    if(if_text==1):
+        temp_prefix='txt'
+        print('---- load text data -----')
+        ## read datafile and prepare for processing
+        with open(base_path+'\\data\\'+data_file_name, encoding="utf8", errors='ignore') as f:
+            text_data = f.read()
+        print(' ------ Splitter ------')
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+        texts = text_splitter.split_text(text_data)
+        print(len(texts),' ---- text splitted ---- ',type(texts))
+        
+    elif(if_pdf==1):
+        print(' ****** load pdf *****')
+        temp_prefix='pdf'
+        loader = PyPDFLoader(base_path+'\\data\\'+pdf_name)
+        pages = loader.load_and_split()
+        # print(len(pages),' ---',pages[0].page_content,' :: ',type(pages[0].page_content),' :: ',type(pages))
+        texts=[]
+        print(' ------ Splitter by Page ------')
+        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
+        for page in pages:                        
+            texts.extend(text_splitter.split_text(page.page_content))
+    
+    else:
+        print(' ******************************** ')
+        print(' ----      E r R o R         ---- ')
+        print(' ******************************** ')
+        exit()
 
     enc = tiktoken.encoding_for_model("gpt-4")
     tokens_per_section = []
@@ -208,8 +275,16 @@ if(if_new_data==1):
         # print(' ==== text ===> ',text,' :: ',len(tokens))
         df=df.append({'index':text,'content':text,'tokens':len(tokens)},ignore_index=True)
 
-    df.set_index(['index'],inplace=True)
-    document_embeddings = compute_doc_embeddings(df,EMBEDDING_MODEL)
+    df.set_index(['index'],inplace=True)    
+
+    ### original embeeding , not delay version (for demo)
+    # document_embeddings = compute_doc_embeddings(df,EMBEDDING_MODEL)
+    #####################################################
+    ## test
+    # df=df.head(30)
+    ####################################################
+    ### Operation version : due to openai limit for 60 embedding calls per minute, forcing delayed call to avoid this limit
+    document_embeddings = compute_doc_embeddings_delay(df,EMBEDDING_MODEL)
 
     print(len(document_embeddings),' ---- embedded ----', document_embeddings,' :: ',type(document_embeddings))
     outputDf=pd.DataFrame()
@@ -217,9 +292,29 @@ if(if_new_data==1):
     for outputId in outputList:
         tokens = enc.encode(outputId)        
         outputDf=outputDf.append({'content':outputId,'vector':document_embeddings[outputId],'length':len(document_embeddings[outputId]),'tokens':len(tokens)},ignore_index=True)
-    outputDf.to_parquet(os.getcwd()+'\\temp\\'+'embedding_ver2.parquet',index=False)
+    outputDf.to_parquet(os.getcwd()+'\\temp\\'+temp_prefix+'_embedding_ver2.parquet',index=False)
+
+    try:
+        print(' -- updating Existing reference table ----')
+        reference_table_df=pd.read_parquet(os.getcwd()+'\\temp\\'+reference_table_file)
+        reference_table_df=reference_table_df.append(outputDf).reset_index(drop=True)
+        reference_table_df.to_parquet(os.getcwd()+'\\temp\\'+reference_table_file,index=False)
+    except:
+        print(' -- Creating new reference table --')
+        outputDf.to_parquet(os.getcwd()+'\\temp\\'+reference_table_file,index=False)
+
+    print(' ----- read new data Done : exit ----')
+    exit()
+
 else:
-    dfData=pd.read_parquet(os.getcwd()+'\\temp\\'+'embedding_ver2.parquet')
+    if(if_text==1):
+        temp_prefix='txt'
+    elif(if_pdf==1):
+        temp_prefix='pdf'
+    else:
+        print(' --- E r R o r --- ')
+        exit()
+    dfData=pd.read_parquet(os.getcwd()+'\\temp\\'+temp_prefix+'_embedding_ver2.parquet')
     dfData['id']=dfData.index ### id  will be used to link search result with content in original data
     ###################
     ## test
@@ -230,9 +325,14 @@ else:
     dfData['id']=dfData['id'].astype(str)
     print(len(dfData),' --- read in : saved embedding data ---- ',dfData.head(3),' :: ',dfData.columns)
 
-if(if_insert==1):    
+    reference_table_df=pd.read_parquet(os.getcwd()+'\\temp\\'+reference_table_file)
+    print(len(reference_table_df),' ---  reference table ----',reference_table_df.head(3),' :: ',reference_table_df.columns)
+    reference_table_df.to_excel(os.getcwd()+'\\'+'check_reference_Table.xlsx',index=False)
+
+if(if_insert_newdata==1):   
+    start_id=0 
     columnList=['id','vector']
-    entities=Vectorize_DataFrame(dfData, columnList)
+    entities=Vectorize_DataFrame(dfData, columnList, start_id)
     print(' entities : ',entities)
     collection = create_milvus_collection('question_answer', dim)
     insert_result = collection.insert(entities)
@@ -240,8 +340,27 @@ if(if_insert==1):
     collection.flush() 
     print('Total number of inserted data is {}.'.format(collection.num_entities))
 
+if(if_insert_to_existingTable==1):
+    collection = Collection("question_answer")      # Get an existing collection according to the name. eg. "question answer" is a name of collection (table)
+    collection.load(replica_number=1)    
+    print('Total number of entitiy is {}.'.format(collection.num_entities))    
+    columnList=['id','vector']
+    start_id=int(collection.num_entities)  ### 
+    entities=Vectorize_DataFrame(dfData, columnList, start_id)    
+    # print(' entities : ',entities)  
+    insert_result = collection.insert(entities)
+    # # After final entity is inserted, it is best to call flush to have no growing segments left in memory
+    collection.flush() 
+    print('Total number of inserted data is {}.'.format(collection.num_entities))
+
 if(if_query==1):
     print(' ----- querying ------')
+    reference_table_df=pd.read_parquet(os.getcwd()+'\\temp\\'+reference_table_file)    
+    print(len(reference_table_df),' ---  reference table ----',reference_table_df.head(3),' :: ',reference_table_df.columns)
+    dfData=reference_table_df.copy()
+    dfData['id']=dfData.index ### 
+    dfData['id']=dfData['id'].astype(str)
+
     collection = Collection("question_answer")      # Get an existing collection according to the name. eg. "question answer" is a name of collection (table)
     collection.load(replica_number=1)    
     print('Total number of entitiy is {}.'.format(collection.num_entities))
