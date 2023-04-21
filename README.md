@@ -18,3 +18,4 @@ test_pymilvus_ver1 :Code used to learn how to interact with Milvus <br> <br>
  <br> <br>
 note: <br>
 1.Need to tune the code to obtain best performance, should you want to use it in production
+2.Add read PDF document function 2023-04-21
