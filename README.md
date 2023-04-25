@@ -16,6 +16,8 @@ test_pymilvus_ver1 :Code used to learn how to interact with Milvus <br> <br>
 3.Set up environment according to the requirement.txt  <br>
 4.Try running the maincode to see how the program work  <br>
  <br> <br>
-note: <br>
-1.Need to tune the code to obtain best performance, should you want to use it in production
-2.Add read PDF document function 2023-04-21
+# note: <br>
+1.Need to tune the code to obtain best performance, should you want to use it in production <br>
+2.Add read PDF document function 2023-04-21  <br>
+3.from Experiment: Found that using different text splitter results in different prediction results  <br>
+  Best result obtains from using Recursivecharactertextsplitter for text reader and using Charactertextsplitter for pdf reader  <br>
