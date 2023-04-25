@@ -240,10 +240,10 @@ def Vectorize_DataFrame(dfIn, columnList, start_id):
 ### connect to pymilvus
 #### set up Milvus according to the documentation on its website , standalone : https://milvus.io/docs/install_standalone-operator.md
 #### input host ip , ip of machine with Milvus installed
-connections.connect("default", host="10.8.222.129", port="19530")   
+connections.connect("default", host="xx.xx.xxx.xxx", port="19530")   
 
 ## openai
-openai.api_key='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'    #### input your oopenai API key here
+openai.api_key='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'    #### input your oopenai API key here
 
 EMBEDDING_MODEL = "text-embedding-ada-002"
 COMPLETIONS_MODEL = "gpt-3.5-turbo"
